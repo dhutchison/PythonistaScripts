@@ -1,9 +1,6 @@
-import webbrowser, os, pprint
-import dropbox
-import hashlib
-import json
-import difflib
-import sys
+# See: http://www.devwithimagination.com/2014/05/11/pythonista-dropbox-sync
+
+import difflib, dropbox, hashlib, json, os, pprint, sys, webbrowser
 
 # Configuration
 TOKEN_FILENAME = 'PythonistaDropbox.token'
@@ -44,7 +41,6 @@ def configure_token(dropbox_session):
 		dropbox_session.set_token(token_key,token_secret)
 	else:
 		setup_new_auth_token(dropbox_session)
-	pass
 
 # Method to set up a new Dropbox OAUTH token.
 # This will take the user through the required steps to authenticate.
@@ -60,10 +56,8 @@ def setup_new_auth_token(sess):
 	# This will fail if the user didn't visit the above URL and hit 'Allow'
 	access_token = sess.obtain_access_token(request_token)
 	#save token file
-	token_file = open(TOKEN_FILEPATH,'w')
-	token_file.write("%s|%s" % (access_token.key,access_token.secret) )
-	token_file.close()
-	pass
+	with open(TOKEN_FILEPATH,'w') as token_file:
+		token_file.write("%s|%s" % (access_token.key,access_token.secret) )
 
 def upload(file, details, client, parent_revision):
 	print "Trying to upload %s" % file
@@ -291,10 +285,8 @@ def process_folder(client, dropbox_dir, file_details):
 		process_folder(client, folder, file_details)
 
 def update_file_details(file_details, dropbox_metadata):
-	file_details['revision'] = dropbox_metadata['revision']
-	file_details['rev'] = dropbox_metadata['rev']
-	file_details['modified'] = dropbox_metadata['modified']
-	file_details['path'] = dropbox_metadata['path']
+	for key in 'revision rev modified path'.split():
+		file_details[key] = dropbox_metadata[key]
 	return file_details
 
 def write_sync_state(file_details):
