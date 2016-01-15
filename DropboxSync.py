@@ -24,20 +24,16 @@ pp = pprint.PrettyPrinter(indent=4)
 def getHash(file_name):
 	# Open,close, read file and calculate MD5 on its contents
 	with open(file_name) as file_to_check:
-		# read contents of the file
-		data = file_to_check.read()
 		# pipe contents of the file through
-		file_hash = hashlib.md5(data).hexdigest()
-	return file_hash
+		return hashlib.md5(file_to_check.read()).hexdigest()
 
 # Method to configure the supplied dropbox session.
 # This will use cached OAUTH credentials if they have been stored, otherwise the
 # user will be put through the Dropbox authentication process.
 def configure_token(dropbox_session):
 	if os.path.exists(TOKEN_FILEPATH):
-		token_file = open(TOKEN_FILEPATH)
-		token_key, token_secret = token_file.read().split('|')
-		token_file.close()
+		with open(TOKEN_FILEPATH) as token_file:
+			token_key, token_secret = token_file.read().split('|')
 		dropbox_session.set_token(token_key,token_secret)
 	else:
 		setup_new_auth_token(dropbox_session)
@@ -64,7 +60,8 @@ def upload(file, details, client, parent_revision):
 	details['md5hash'] = getHash(file)
 	print "New MD5 hash: %s" % details['md5hash']
 
-	response = client.put_file(file, open(file, 'r'), False, parent_revision)
+	with open(file, 'r') as in_file:
+		response = client.put_file(file, in_file, False, parent_revision)
 	#print "Response: %s" % response
 	details = update_file_details(details, response)
 
@@ -73,15 +70,12 @@ def upload(file, details, client, parent_revision):
 	return details
 
 def download(dest_path, dropbox_metadata, details, client):
-	out = open(dest_path, 'w')
-	file_content = client.get_file(dropbox_metadata['path']).read()
-	out.write(file_content)
+	with open(dest_path, 'w') as out_file:
+		out_file.write(client.get_file(dropbox_metadata['path']).read())
 
 	details['md5hash'] = getHash(dest_path)
 	print "New MD5 hash: %s" % details['md5hash']
-	details = update_file_details(details, dropbox_metadata)
-
-	return details
+	return update_file_details(details, dropbox_metadata)
 
 def process_folder(client, dropbox_dir, file_details):
 
@@ -90,7 +84,7 @@ def process_folder(client, dropbox_dir, file_details):
 	try:
 		folder_metadata = client.metadata(dropbox_dir)
 
-		if VERBOSE_LOGGING == True:
+		if VERBOSE_LOGGING:
 			print "metadata"
 			pp.pprint(folder_metadata)
 	except dropbox.rest.ErrorResponse as error:
@@ -147,9 +141,9 @@ def process_folder(client, dropbox_dir, file_details):
 						details = {}
 						download_file = True
 
-					if (download_file ==  True):
+					if download_file:
 						print "Downloading file %s (%s)" % (file['path'], dropbox_path)
-						if VERBOSE_LOGGING == True:
+						if VERBOSE_LOGGING:
 							print details
 
 						details = download(dropbox_path, file, details, client)
@@ -167,14 +161,14 @@ def process_folder(client, dropbox_dir, file_details):
 				if dropbox_path in file_details:
 					details = file_details[dropbox_path]
 
-					if VERBOSE_LOGGING == True:
+					if VERBOSE_LOGGING:
 						print "Held details are: %s" % details
 
 					if details['revision'] == file['revision']:
 						# same revision
 						current_hash = getHash(dropbox_path)
 
-						if VERBOSE_LOGGING == True:
+						if VERBOSE_LOGGING:
 							print 'New hash: %s, Old hash: %s' % (current_hash, details['md5hash'])
 
 						if current_hash == details['md5hash']:
@@ -192,7 +186,7 @@ def process_folder(client, dropbox_dir, file_details):
 
 						current_hash = getHash(dropbox_path)
 
-						if VERBOSE_LOGGING == True:
+						if VERBOSE_LOGGING:
 							print 'File %s. New hash: %s, Old hash: %s' % (dropbox_path, current_hash, details['md5hash'])
 
 						if current_hash == details['md5hash']:
@@ -204,11 +198,11 @@ def process_folder(client, dropbox_dir, file_details):
 							print "File %s has been updated both locally and on Dropbox. Overwrite [Dropbox Copy (d)|Local Copy (l)| Skip(n)] (Default Skip)" % file['path']
 							choice = raw_input()
 
-							if choice == 'd' or choice == 'D':
+							if choice in ('d', 'D'):
 								print "Overwriting Dropbox Copy of %s" % file
 								details = upload(dropbox_path, details, client, file['rev'])
 								file_details[dropbox_path] = details
-							elif choice == 'l' or choice == 'L':
+							elif choice in ('l', 'L'):
 								print "Overwriting Local Copy of %s" % file
 								details = download(dropbox_path, file, details, client)
 								file_details[dropbox_path] = details
@@ -221,11 +215,11 @@ def process_folder(client, dropbox_dir, file_details):
 					choice = raw_input()
 
 					details = {}
-					if choice == 'd' or choice == 'D':
+					if choice in ('d', 'D'):
 						print "Overwriting Dropbox Copy of %s" % file
 						details = upload(dropbox_path, details, client, file['rev'])
 						file_details[dropbox_path] = details
-					elif choice == 'l' or choice == 'L':
+					elif choice in ('l', 'L'):
 						print "Overwriting Local Copy of %s" % file
 						details = download(dropbox_path, file, details, client)
 						file_details[dropbox_path] = details
@@ -235,7 +229,7 @@ def process_folder(client, dropbox_dir, file_details):
 				# Finished dealing with this file, update the sync state and mark this file as processed.
 				write_sync_state(file_details)
 				processed_files.append(file_name)
-		elif file['is_dir'] == True:
+		elif file['is_dir']:
 			dropbox_dirs.append(file['path'])
 
 
@@ -249,14 +243,14 @@ def process_folder(client, dropbox_dir, file_details):
 
 		if not file in processed_files and not os.path.isdir(file) and not file.startswith('.') and file.endswith('.py'):
 
-			if VERBOSE_LOGGING == True:
+			if VERBOSE_LOGGING:
 				print 'Searching "%s" for "%s"' % (dropbox_dir, file)
 			found = client.search(dropbox_dir, file)
 
 			if found:
 				print "File found on Dropbox, this shouldn't happen! Skipping %s..." % file
 			else:
-				if VERBOSE_LOGGING == True:
+				if VERBOSE_LOGGING:
 					pp.pprint(file)
 
 				if file in file_details:
@@ -275,12 +269,12 @@ def process_folder(client, dropbox_dir, file_details):
 
 	#process the directories
 	for folder in dropbox_dirs:
-		if VERBOSE_LOGGING == True:
+		if VERBOSE_LOGGING:
 			print 'Processing dropbox dir %s from %s' % (folder, dropbox_dir)
 		process_folder(client, folder, file_details)
 
 	for folder in local_dirs:
-		if VERBOSE_LOGGING == True:
+		if VERBOSE_LOGGING:
 			print 'Processing local dir %s from %s' % (folder, dropbox_dir)
 		process_folder(client, folder, file_details)
 
@@ -304,7 +298,7 @@ def main():
 	# Process any supplied arguments
 	global VERBOSE_LOGGING
 	for argument in sys.argv:
-		if argument == '-v':
+		if argument in ('-v', '-V'):
 			VERBOSE_LOGGING = True
 
 	# Load the current sync status file, if it exists.
@@ -318,7 +312,7 @@ def main():
 	else:
 		file_details = {}
 
-	if VERBOSE_LOGGING == True:
+	if VERBOSE_LOGGING:
 		print "File Details: "
 		pp.pprint(file_details)
 
