@@ -14,6 +14,7 @@ ACCESS_TYPE = 'app_folder'
 # Program, do not edit from here
 VERBOSE_LOGGING = False
 
+SUPPORTED_EXTENSIONS = ['.py', '.pyui']
 PYTHONISTA_DOC_DIR = os.path.expanduser('~/Documents')
 SYNC_STATE_FOLDER = os.path.join(PYTHONISTA_DOC_DIR, 'dropbox_sync')
 TOKEN_FILEPATH = os.path.join(SYNC_STATE_FOLDER, TOKEN_FILENAME)
@@ -113,7 +114,8 @@ def process_folder(client, dropbox_dir, file_details):
 	for file in folder_metadata['contents']:
 		dropbox_path = file['path'][1:]
 		file_name = file['path'].split('/')[-1]
-		if file['is_dir'] == False and file['mime_type'].endswith('python'):
+		
+		if file['is_dir'] == False and os.path.splitext(file_name)[1] in (SUPPORTED_EXTENSIONS):
 
 			if not os.path.exists(os.path.join(PYTHONISTA_DOC_DIR, dropbox_path)):
 				print "Processing Dropbox file %s (%s)" % (file['path'], dropbox_path)
@@ -241,29 +243,44 @@ def process_folder(client, dropbox_dir, file_details):
 		relative_path = os.path.relpath(full_path)
 		db_path = '/'+relative_path
 
-		if not file in processed_files and not os.path.isdir(file) and not file.startswith('.') and file.endswith('.py'):
-
-			if VERBOSE_LOGGING:
-				print 'Searching "%s" for "%s"' % (dropbox_dir, file)
-			found = client.search(dropbox_dir, file)
-
-			if found:
-				print "File found on Dropbox, this shouldn't happen! Skipping %s..." % file
-			else:
+		if not file in processed_files and not os.path.isdir(relative_path) and not file.startswith('.'):
+			
+			filename, file_ext = os.path.splitext(file)
+			
+			if file_ext in (SUPPORTED_EXTENSIONS):
+					
+					
 				if VERBOSE_LOGGING:
-					pp.pprint(file)
+					print 'Searching "%s" for "%s"' % (dropbox_dir, file)
+				# this search includes dropbox_dir AND CHILD DIRS!
+				search_results = client.search(dropbox_dir, file)
+				pp.pprint(search_results)
+				
+				found = False
+				for single_result in search_results:
+					if single_result['path'] == db_path:
+						found = True
 
-				if file in file_details:
-					details = file_details[file]
+				if found:
+					print "File found on Dropbox, this shouldn't happen! Skipping %s..." % file
 				else:
-					details = {}
-				print details
+					if VERBOSE_LOGGING:
+						pp.pprint(relative_path)
 
-				details = upload(relative_path, details, client, None )
-				file_details[relative_path] = details
-				write_sync_state(file_details)
+					if relative_path in file_details:
+						details = file_details[relative_path]
+					else:
+						details = {}
+					print details
 
-		elif not db_path in dropbox_dirs and os.path.isdir(file) and not file.startswith('.') and not file == SYNC_STATE_FOLDER:
+					details = upload(relative_path, details, client, None )
+					file_details[relative_path] = details
+					write_sync_state(file_details)
+				
+			elif VERBOSE_LOGGING:
+				print "Skipping extension %s" % file_ext
+
+		elif not db_path in dropbox_dirs and os.path.isdir(relative_path) and not file.startswith('.') and not file == SYNC_STATE_FOLDER:
 			local_dirs.append(db_path)
 
 
