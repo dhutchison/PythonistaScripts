@@ -3,7 +3,6 @@
 import difflib, dropbox, hashlib, json, os, pprint, sys, webbrowser
 
 # Configuration
-TOKEN_FILENAME = 'PythonistaDropbox.token'
 # Get your app key and secret from the Dropbox developer website
 APP_KEY = 'XXXXXXXXXXX'
 APP_SECRET = 'XXXXXXXXX'
@@ -14,10 +13,16 @@ ACCESS_TYPE = 'app_folder'
 # Program, do not edit from here
 VERBOSE_LOGGING = False
 
-SUPPORTED_EXTENSIONS = ['.py', '.pyui']
+SUPPORTED_EXTENSIONS = ['.py', '.pyui', '.txt']
 PYTHONISTA_DOC_DIR = os.path.expanduser('~/Documents')
-SYNC_STATE_FOLDER = os.path.join(PYTHONISTA_DOC_DIR, 'dropbox_sync')
+SYNC_FOLDER_NAME = 'dropbox_sync'
+SYNC_STATE_FOLDER = os.path.join(PYTHONISTA_DOC_DIR, SYNC_FOLDER_NAME)
+SYNC_STATE_FILENAME = 'file.cache.txt'
+TOKEN_FILENAME = 'PythonistaDropbox.token'
 TOKEN_FILEPATH = os.path.join(SYNC_STATE_FOLDER, TOKEN_FILENAME)
+
+# files that shouldn't be synced
+SKIP_FILES = [os.path.join(SYNC_FOLDER_NAME, SYNC_STATE_FILENAME), os.path.join(SYNC_FOLDER_NAME, TOKEN_FILENAME)]
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -243,7 +248,7 @@ def process_folder(client, dropbox_dir, file_details):
 		relative_path = os.path.relpath(full_path)
 		db_path = '/'+relative_path
 
-		if not file in processed_files and not os.path.isdir(relative_path) and not file.startswith('.'):
+		if not file in processed_files and not relative_path in (SKIP_FILES) and not os.path.isdir(relative_path) and not file.startswith('.'):
 			
 			filename, file_ext = os.path.splitext(file)
 			
@@ -293,7 +298,8 @@ def process_folder(client, dropbox_dir, file_details):
 	for folder in local_dirs:
 		if VERBOSE_LOGGING:
 			print 'Processing local dir %s from %s' % (folder, dropbox_dir)
-		process_folder(client, folder, file_details)
+		if folder[1:] not in SKIP_FILES:
+			process_folder(client, folder, file_details)
 
 def update_file_details(file_details, dropbox_metadata):
 	for key in 'revision rev modified path'.split():
@@ -302,7 +308,7 @@ def update_file_details(file_details, dropbox_metadata):
 
 def write_sync_state(file_details):
 	# Write sync state file
-	sync_status_file = os.path.join(SYNC_STATE_FOLDER, 'file.cache.txt')
+	sync_status_file = os.path.join(SYNC_STATE_FOLDER, SYNC_STATE_FILENAME)
 
 	if VERBOSE_LOGGING:
 		print 'Writing sync state to %s' % sync_status_file
@@ -319,7 +325,7 @@ def main():
 			VERBOSE_LOGGING = True
 
 	# Load the current sync status file, if it exists.
-	sync_status_file = os.path.join(SYNC_STATE_FOLDER, 'file.cache.txt')
+	sync_status_file = os.path.join(SYNC_STATE_FOLDER, SYNC_STATE_FILENAME)
 
 	if not os.path.exists(SYNC_STATE_FOLDER):
 		os.mkdir(SYNC_STATE_FOLDER)
