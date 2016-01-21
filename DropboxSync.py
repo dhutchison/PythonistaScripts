@@ -29,7 +29,7 @@ pp = pprint.PrettyPrinter(indent=4)
 # Method to get the MD5 Hash of the file with the supplied file name.
 def getHash(file_name):
 	# Open,close, read file and calculate MD5 on its contents
-	with open(file_name) as file_to_check:
+	with open(os.path.join(PYTHONISTA_DOC_DIR, file_name)) as file_to_check:
 		# pipe contents of the file through
 		return hashlib.md5(file_to_check.read()).hexdigest()
 
@@ -66,7 +66,7 @@ def upload(file, details, client, parent_revision):
 	details['md5hash'] = getHash(file)
 	print "New MD5 hash: %s" % details['md5hash']
 
-	with open(file, 'r') as in_file:
+	with open(os.path.join(PYTHONISTA_DOC_DIR, file), 'r') as in_file:
 		response = client.put_file(file, in_file, False, parent_revision)
 	#print "Response: %s" % response
 	details = update_file_details(details, response)
@@ -76,7 +76,7 @@ def upload(file, details, client, parent_revision):
 	return details
 
 def download(dest_path, dropbox_metadata, details, client):
-	with open(dest_path, 'w') as out_file:
+	with open(os.path.join(PYTHONISTA_DOC_DIR, dest_path), 'w') as out_file:
 		out_file.write(client.get_file(dropbox_metadata['path']).read())
 
 	details['md5hash'] = getHash(dest_path)
@@ -245,10 +245,10 @@ def process_folder(client, dropbox_dir, file_details):
 	for file in files:
 
 		full_path = os.path.join(local_folder, file)
-		relative_path = os.path.relpath(full_path)
+		relative_path = os.path.relpath(full_path, PYTHONISTA_DOC_DIR)
 		db_path = '/'+relative_path
 
-		if not file in processed_files and not relative_path in (SKIP_FILES) and not os.path.isdir(relative_path) and not file.startswith('.'):
+		if not file in processed_files and not relative_path in (SKIP_FILES) and not os.path.isdir(full_path) and not file.startswith('.'):
 			
 			filename, file_ext = os.path.splitext(file)
 			
@@ -285,7 +285,7 @@ def process_folder(client, dropbox_dir, file_details):
 			elif VERBOSE_LOGGING:
 				print "Skipping extension %s" % file_ext
 
-		elif not db_path in dropbox_dirs and os.path.isdir(relative_path) and not file.startswith('.') and not file == SYNC_STATE_FOLDER:
+		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and not file.startswith('.') and not file == SYNC_STATE_FOLDER:
 			local_dirs.append(db_path)
 
 
