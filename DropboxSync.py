@@ -1,6 +1,12 @@
 # See: http://www.devwithimagination.com/2014/05/11/pythonista-dropbox-sync
 
-import difflib, dropbox, hashlib, json, os, sys, webbrowser
+import webbrowser, os
+import dropbox
+import hashlib
+import json
+import difflib
+import sys
+import logging
 
 # Configuration
 # Get your app key and secret from the Dropbox developer website
