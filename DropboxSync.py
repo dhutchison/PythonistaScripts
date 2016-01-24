@@ -8,27 +8,24 @@ import difflib
 import sys
 import logging
 
-# Configuration
-# Get your app key and secret from the Dropbox developer website
-APP_KEY = 'XXXXXXXXXXX'
-APP_SECRET = 'XXXXXXXXX'
-
-# ACCESS_TYPE can be 'dropbox' or 'app_folder' as configured for your app
-ACCESS_TYPE = 'app_folder'
-
 # Program, do not edit from here
+
+# custom logging level
 FINE = 15
 
-SUPPORTED_EXTENSIONS = ['.py', '.pyui', '.txt']
+# file locations used by the program
 PYTHONISTA_DOC_DIR = os.path.expanduser('~/Documents')
 SYNC_FOLDER_NAME = 'dropbox_sync'
 SYNC_STATE_FOLDER = os.path.join(PYTHONISTA_DOC_DIR, SYNC_FOLDER_NAME)
 SYNC_STATE_FILENAME = 'file.cache.txt'
-TOKEN_FILENAME = 'PythonistaDropbox.token'
-TOKEN_FILEPATH = os.path.join(SYNC_STATE_FOLDER, TOKEN_FILENAME)
+CONFIG_FILENAME = 'PythonistaDropbox.conf'
+CONFIG_FILEPATH = os.path.join(SYNC_STATE_FOLDER, CONFIG_FILENAME)
 
-# files that shouldn't be synced
-SKIP_FILES = [os.path.join(SYNC_FOLDER_NAME, SYNC_STATE_FILENAME), os.path.join(SYNC_FOLDER_NAME, TOKEN_FILENAME)]
+# default file extensions which will be processed
+DEFAULT_FILE_EXTENSIONS = ['.py', '.pyui', '.txt', '.conf']
+
+# default list of files that shouldn't be synced
+DEFAULT_SKIP_FILES = [os.path.join(SYNC_FOLDER_NAME, SYNC_STATE_FILENAME)]
 
 # Method to get the MD5 Hash of the file with the supplied file name.
 def getHash(file_name):
@@ -36,21 +33,26 @@ def getHash(file_name):
 	with open(os.path.join(PYTHONISTA_DOC_DIR, file_name)) as file_to_check:
 		# pipe contents of the file through
 		return hashlib.md5(file_to_check.read()).hexdigest()
+		
+# Write the updated configuration
+def write_configuration(config):
+	with open(CONFIG_FILEPATH, 'w') as config_file:
+			json.dump(config, config_file)
 
 # Method to configure the supplied dropbox session.
 # This will use cached OAUTH credentials if they have been stored, otherwise the
 # user will be put through the Dropbox authentication process.
-def configure_token(dropbox_session):
-	if os.path.exists(TOKEN_FILEPATH):
-		with open(TOKEN_FILEPATH) as token_file:
-			token_key, token_secret = token_file.read().split('|')
-		dropbox_session.set_token(token_key,token_secret)
+def configure_token(dropbox_session, configuration):
+	
+	if 'token_key' in configuration and 'token_secret' in configuration:
+		# values exist in our config already
+		dropbox_session.set_token(configuration['token_key'], configuration['token_secret'])
 	else:
-		setup_new_auth_token(dropbox_session)
+		setup_new_auth_token(dropbox_session, configuration)
 
 # Method to set up a new Dropbox OAUTH token.
 # This will take the user through the required steps to authenticate.
-def setup_new_auth_token(sess):
+def setup_new_auth_token(sess, configuration):
 	request_token = sess.obtain_request_token()
 	url = sess.build_authorize_url(request_token)
 
@@ -61,9 +63,11 @@ def setup_new_auth_token(sess):
 	raw_input()
 	# This will fail if the user didn't visit the above URL and hit 'Allow'
 	access_token = sess.obtain_access_token(request_token)
-	#save token file
-	with open(TOKEN_FILEPATH,'w') as token_file:
-		token_file.write("%s|%s" % (access_token.key,access_token.secret) )
+	# update configuration with token
+	configuration['token_key'] = access_token.key
+	configuration['token_secret'] = access_token.secret
+	
+	write_configuration(configuration)
 
 def upload(file, details, client, parent_revision):
 	logging.log(FINE, 'Trying to upload %s', file)
@@ -88,7 +92,7 @@ def download(dest_path, dropbox_metadata, details, client):
 	logging.log(FINE, 'New MD5 hash: %s', details['md5hash'])
 	return update_file_details(details, dropbox_metadata)
 
-def process_folder(client, dropbox_dir, file_details):
+def process_folder(config, client, dropbox_dir, file_details):
 
 	# Get the metadata for the directory being processed (dropbox_dir).
 	# If the directory does not exist on Dropbox it will be created.
@@ -98,7 +102,7 @@ def process_folder(client, dropbox_dir, file_details):
 		logging.debug('metadata: %s', folder_metadata)
 		
 	except dropbox.rest.ErrorResponse as error:
-		logger.debug(error.status)
+		logging.debug(error.status)
 		if error.status == 404:
 			client.file_create_folder(dropbox_dir)
 			folder_metadata = client.metadata(dropbox_dir)
@@ -124,7 +128,7 @@ def process_folder(client, dropbox_dir, file_details):
 		dropbox_path = file['path'][1:]
 		file_name = file['path'].split('/')[-1]
 		
-		if file['is_dir'] == False and os.path.splitext(file_name)[1] in (SUPPORTED_EXTENSIONS):
+		if file['is_dir'] == False and os.path.splitext(file_name)[1] in config['file_extensions']:
 
 			if not os.path.exists(os.path.join(PYTHONISTA_DOC_DIR, dropbox_path)):
 				logging.info('Processing Dropbox file %s (%s)', file['path'], dropbox_path)
@@ -249,11 +253,11 @@ def process_folder(client, dropbox_dir, file_details):
 		relative_path = os.path.relpath(full_path, PYTHONISTA_DOC_DIR)
 		db_path = '/'+relative_path
 
-		if not file in processed_files and not relative_path in (SKIP_FILES) and not os.path.isdir(full_path) and not file.startswith('.'):
+		if not file in processed_files and not relative_path in config['skip_files'] and not os.path.isdir(full_path) and not file.startswith('.'):
 			
 			filename, file_ext = os.path.splitext(file)
 			
-			if file_ext in (SUPPORTED_EXTENSIONS):
+			if file_ext in (config['file_extensions']):
 					
 					
 				logging.debug('Searching "%s" for "%s"', dropbox_dir, file)
@@ -285,19 +289,24 @@ def process_folder(client, dropbox_dir, file_details):
 			else:
 				logging.debug("Skipping extension %s", file_ext)
 
-		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and not file.startswith('.') and not file == SYNC_STATE_FOLDER:
+		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and not file.startswith('.'):
 			local_dirs.append(db_path)
 
 
 	#process the directories
 	for folder in dropbox_dirs:
 		logging.debug('Processing dropbox dir %s from %s', folder, dropbox_dir)
-		process_folder(client, folder, file_details)
+		if folder[1:] not in config['skip_files']:
+			process_folder(config, client, folder, file_details)
+		else:
+			logging.log(FINE, 'Skipping dropbox directory %s', folder)
 
 	for folder in local_dirs:
 		logging.debug('Processing local dir %s from %s', folder, dropbox_dir)
-		if folder[1:] not in SKIP_FILES:
-			process_folder(client, folder, file_details)
+		if folder[1:] not in config['skip_files']:
+			process_folder(config, client, folder, file_details)
+		else:
+			logging.log(FINE, 'Skipping local directory %s', folder)
 
 def update_file_details(file_details, dropbox_metadata):
 	for key in 'revision rev modified path'.split():
@@ -313,27 +322,75 @@ def write_sync_state(file_details):
 	with open(sync_status_file, 'w') as output_file:
 		json.dump(file_details, output_file)
 
-def main():
-
-	# Process any supplied arguments
-	log_level = 'INFO'
+# prompt user for additional (optional) configuration options
+def setup_user_configuration(prompt, configuration):
 	
-	for argument in sys.argv:
-		if argument.lower() == '-v':
-			log_level = 'FINE'
-		elif argument.lower() == '-vv':
-			log_level = 'DEBUG'
+	if prompt:
+		logging.info('What file extensions should be synced? New extensions must be prefixed with a dot, and be comma separated. (These will be included by default %s)', DEFAULT_FILE_EXTENSIONS)
+		configuration['file_extensions'] = raw_input().replace(', ',',').split(',')
+		
+		logging.debug(input)
+		
+		logging.info('What files should not be synced? Paths should be relative to the root and be comma separated.')
+		configuration['skip_files'] = raw_input().replace(', ',',').split(',')
+	
+		write_configuration(configuration)
+	
+	# add missing options if not user configured
+	if 'file_extensions' not in configuration:
+		configuration['file_extensions'] = []
+		
+	for ext in DEFAULT_FILE_EXTENSIONS:
+		configuration['file_extensions'].append(ext)
+		
+	configuration['file_extensions'] = set(configuration['file_extensions'])
+	logging.log(FINE, 'File extensions: %s', configuration['file_extensions'])
+		
+	if 'skip_files' not in configuration:
+		configuration['skip_files'] = []
+		
+	for file in DEFAULT_SKIP_FILES:
+		configuration['skip_files'].append(file)
+	configuration['skip_files'] = set(configuration['skip_files'])
+	logging.log(FINE, 'Skip files: %s', configuration['skip_files'])
+	
+	logging.warning('missing implementation of user config')
+
+# Load the configuration file, if it exists. 
+# if a configuration file does not exist this will prompt
+# the user for inital configuration values		
+def setup_configuration():
+	
+	if not os.path.exists(SYNC_STATE_FOLDER):
+		os.mkdir(SYNC_STATE_FOLDER)
+	if os.path.exists(CONFIG_FILEPATH):
+		with open(CONFIG_FILEPATH, 'r') as config_file:
+			config = json.load(config_file)
+	else:
+		logging.log(FINE, 'Configuration file missing')
+		config = {}
+		
+		logging.info('Get your app key and secret from the Dropbox developer website')
+		logging.info('Enter your app key')
+		config['APP_KEY'] = raw_input()
+		logging.info('Enter your app secret')
+		config['APP_SECRET'] = raw_input()
+		
+		# ACCESS_TYPE can be 'dropbox' or 'app_folder' as configured for your app
+		config['ACCESS_TYPE'] = 'app_folder'
+		
+		
+		# Write the config file back
+		write_configuration(config)
 			
-	# configure logging
-	log_format = "%(message)s"
-	
-	logging.addLevelName(FINE, 'FINE')
-	for handler in logging.getLogger().handlers:
-		logging.getLogger().removeHandler(handler)
-	logging.basicConfig(format=log_format, level=log_level)
+	return config
 	
 
-	# Load the current sync status file, if it exists.
+
+# Load the current sync status file, if it exists, and return the contents.
+# if the file does not exist an empty object will be returned. 
+def load_sync_state():
+	
 	sync_status_file = os.path.join(SYNC_STATE_FOLDER, SYNC_STATE_FILENAME)
 
 	if not os.path.exists(SYNC_STATE_FOLDER):
@@ -345,18 +402,52 @@ def main():
 		file_details = {}
 
 	logging.debug('File Details: %s', file_details)
+	
+	return file_details
+	
+
+def main():
+
+	# Process any supplied arguments
+	log_level = 'INFO'
+	update_config = False
+	
+	for argument in sys.argv:
+		if argument.lower() == '-v':
+			log_level = 'FINE'
+		elif argument.lower() == '-vv':
+			log_level = 'DEBUG'
+		elif argument.lower() == '-c':
+			update_config = True
+			
+	# configure logging
+	log_format = "%(message)s"
+	
+	logging.addLevelName(FINE, 'FINE')
+	for handler in logging.getLogger().handlers:
+		logging.getLogger().removeHandler(handler)
+	logging.basicConfig(format=log_format, level=log_level)
+	
+
+	# Load the current sync status file
+	file_details = load_sync_state()
 		
+	# Load the initial configuration
+	config = setup_configuration()
+	
+	# set up user configuration options
+	setup_user_configuration(update_config, config)
 		
 	logging.info('Begin Dropbox sync')
 
 	#configure dropbox
-	sess = dropbox.session.DropboxSession(APP_KEY, APP_SECRET, ACCESS_TYPE)
-	configure_token(sess)
+	sess = dropbox.session.DropboxSession(config['APP_KEY'], config['APP_SECRET'], config['ACCESS_TYPE'])
+	configure_token(sess, config)
 	client = dropbox.client.DropboxClient(sess)
 
 	logging.info('linked account: %s', client.account_info()['display_name'])
 
-	process_folder(client, '/', file_details)
+	process_folder(config, client, '/', file_details)
 
 	# Write sync state file
 	write_sync_state(file_details)
@@ -365,3 +456,4 @@ def main():
 if __name__ == "__main__":
 	main()
 	logging.info('Dropbox sync done!')
+	
