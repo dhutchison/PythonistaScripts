@@ -37,7 +37,7 @@ def getHash(file_name):
 # Write the updated configuration
 def write_configuration(config):
 	with open(CONFIG_FILEPATH, 'w') as config_file:
-			json.dump(config, config_file)
+			json.dump(config, config_file, indent=1)
 
 # Method to configure the supplied dropbox session.
 # This will use cached OAUTH credentials if they have been stored, otherwise the
@@ -353,8 +353,6 @@ def setup_user_configuration(prompt, configuration):
 		configuration['skip_files'].append(file)
 	configuration['skip_files'] = set(configuration['skip_files'])
 	logging.log(FINE, 'Skip files: %s', configuration['skip_files'])
-	
-	logging.warning('missing implementation of user config')
 
 # Load the configuration file, if it exists. 
 # if a configuration file does not exist this will prompt
