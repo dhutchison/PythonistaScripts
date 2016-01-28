@@ -27,6 +27,9 @@ DEFAULT_FILE_EXTENSIONS = ['.py', '.pyui', '.txt', '.conf']
 # default list of files that shouldn't be synced
 DEFAULT_SKIP_FILES = [os.path.join(SYNC_FOLDER_NAME, SYNC_STATE_FILENAME)]
 
+# dict holding options the user has chosen to remember
+REMEMBER_OPTIONS = {}
+
 # Method to get the MD5 Hash of the file with the supplied file name.
 def getHash(file_name):
 	# Open,close, read file and calculate MD5 on its contents
@@ -100,6 +103,12 @@ def process_folder(config, client, dropbox_dir, file_details):
 		folder_metadata = client.metadata(dropbox_dir)
 
 		logging.debug('metadata: %s', folder_metadata)
+		
+		if 'is_deleted' in folder_metadata:
+			# directory is deleted, create
+			client.file_create_folder(dropbox_dir)
+			folder_metadata = client.metadata(dropbox_dir)
+			
 		
 	except dropbox.rest.ErrorResponse as error:
 		logging.debug(error.status)
@@ -241,7 +250,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 				# Finished dealing with this file, update the sync state and mark this file as processed.
 				write_sync_state(file_details)
 				processed_files.append(file_name)
-		elif file['is_dir']:
+		elif file['is_dir'] and 'is_deleted' not in file:
 			dropbox_dirs.append(file['path'])
 
 
@@ -276,20 +285,42 @@ def process_folder(config, client, dropbox_dir, file_details):
 				else:
 					logging.debug(relative_path)
 
+					upload_file = False
+					
+					# check if an upload or a local delete is required
 					if relative_path in file_details:
+						# File is not in dropbox but is in sync cache
 						details = file_details[relative_path]
+						
+						logging.info('File %s is in the sync cache but no longer on Dropbox. [Delete local file (d)|Upload File (u)] (Default Delete)', relative_path)
+
+						choice = raw_input()
+						
+						if choice == 'u':
+							upload_file = True
+						else:
+							# delete file
+							os.remove(full_path)
+							
+							# update sync state
+							del file_details[relative_path]
+							write_sync_state(file_details)
 					else:
 						details = {}
-					logging.debug(details)
-
-					details = upload(relative_path, details, client, None )
-					file_details[relative_path] = details
-					write_sync_state(file_details)
+						upload_file = True
+						
+					logging.debug('Details were %s', details)
+					
+					# upload the file
+					if upload_file:
+						details = upload(relative_path, details, client, None )
+						file_details[relative_path] = details
+						write_sync_state(file_details)
 				
 			else:
 				logging.debug("Skipping extension %s", file_ext)
 
-		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and not file.startswith('.'):
+		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and len(os.listdir(full_path)) > 0 and not file.startswith('.'):
 			local_dirs.append(db_path)
 
 
@@ -307,6 +338,14 @@ def process_folder(config, client, dropbox_dir, file_details):
 			process_folder(config, client, folder, file_details)
 		else:
 			logging.log(FINE, 'Skipping local directory %s', folder)
+			
+	# delete the folder if empty
+	folder_metadata = client.metadata(dropbox_dir)
+	if len(folder_metadata['contents']) == 0 and 'is_deleted' not in folder_metadata:
+		# empty remote directory - delete
+		logging.info('Remote directory %s is empty, deleting...', dropbox_dir)
+		logging.debug('Pre-delete metadata %s', folder_metadata)
+		client.file_delete(dropbox_dir)
 
 def update_file_details(file_details, dropbox_metadata):
 	for key in 'revision rev modified path'.split():
