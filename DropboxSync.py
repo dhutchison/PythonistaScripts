@@ -137,7 +137,9 @@ def process_folder(config, client, dropbox_dir, file_details):
 		dropbox_path = file['path'][1:]
 		file_name = file['path'].split('/')[-1]
 		
-		if file['is_dir'] == False and os.path.splitext(file_name)[1] in config['file_extensions']:
+		file_ext = os.path.splitext(file_name)[1]
+		
+		if file['is_dir'] == False and (file_ext in config['file_extensions'] or [m.group(0) for l in config['file_extensions'] for m in [re.match('[\.]?\*',l)] if m]):
 
 			if not os.path.exists(os.path.join(PYTHONISTA_DOC_DIR, dropbox_path)):
 				logging.info('Processing Dropbox file %s (%s)', file['path'], dropbox_path)
@@ -266,7 +268,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 			
 			filename, file_ext = os.path.splitext(file)
 			
-			if file_ext in (config['file_extensions']):
+			if file_ext in (config['file_extensions']) or [m.group(0) for l in config['file_extensions'] for m in [re.match('[\.]?\*',l)] if m]:
 					
 					
 				logging.debug('Searching "%s" for "%s"', dropbox_dir, file)
