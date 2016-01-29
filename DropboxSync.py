@@ -7,6 +7,7 @@ import json
 import difflib
 import sys
 import logging
+import re
 
 # Program, do not edit from here
 
@@ -382,17 +383,18 @@ def setup_user_configuration(prompt, configuration):
 		configuration['file_extensions'] = []
 		
 	for ext in DEFAULT_FILE_EXTENSIONS:
-		configuration['file_extensions'].append(ext)
+		if ext not in configuration['file_extensions']:
+			configuration['file_extensions'].append(ext)
 		
-	configuration['file_extensions'] = set(configuration['file_extensions'])
 	logging.log(FINE, 'File extensions: %s', configuration['file_extensions'])
 		
 	if 'skip_files' not in configuration:
 		configuration['skip_files'] = []
 		
 	for file in DEFAULT_SKIP_FILES:
-		configuration['skip_files'].append(file)
-	configuration['skip_files'] = set(configuration['skip_files'])
+		if file not in configuration['skip_files']:
+			configuration['skip_files'].append(file)
+			
 	logging.log(FINE, 'Skip files: %s', configuration['skip_files'])
 
 # Load the configuration file, if it exists. 
