@@ -8,6 +8,7 @@ import difflib
 import sys
 import logging
 import re
+import console
 
 # Program, do not edit from here
 
@@ -510,6 +511,9 @@ def main():
 		logging.getLogger().removeHandler(handler)
 	logging.basicConfig(format=log_format, level=log_level)
 	
+	
+	# disable dimming the screen
+	console.set_idle_timer_disabled(True)
 
 	# Load the current sync status file
 	file_details = load_sync_state()
