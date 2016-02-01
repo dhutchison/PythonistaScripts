@@ -37,6 +37,46 @@ def getHash(file_name):
 	with open(os.path.join(PYTHONISTA_DOC_DIR, file_name)) as file_to_check:
 		# pipe contents of the file through
 		return hashlib.md5(file_to_check.read()).hexdigest()
+
+# Helper method to determine if a local file is eligible for sync
+def can_sync_local_file(config, file):
+
+	relative_path = os.path.relpath(file, PYTHONISTA_DOC_DIR)
+
+	if not relative_path in config['skip_files'] and not file.startswith('.') and not os.path.isdir(file):
+		
+		file_ext = os.path.splitext(file)[1]
+			
+		if file_ext in (config['file_extensions']) or [m.group(0) for l in config['file_extensions'] for m in [re.match('[\.]?\*',l)] if m]:
+			return True
+	
+	return False
+
+# Method to determine if the supplied local folder contains any files which would be eligible for sync
+def can_sync_local_directory(config, local_folder):
+	
+	if os.path.exists(local_folder) and not os.path.relpath(local_folder, PYTHONISTA_DOC_DIR) in config['skip_files'] and not os.path.dirname(local_folder).startswith('.'):
+		files = os.listdir(local_folder)
+		for current_file in files:
+		
+			full_path = os.path.join(local_folder, current_file)
+			relative_path = os.path.relpath(full_path, PYTHONISTA_DOC_DIR)
+			db_path = '/'+relative_path
+
+			if can_sync_local_file(config, full_path):
+				return True
+			
+			elif os.path.isdir(full_path):
+			
+					files_found = does_directory_contain_files(config, full_path)
+					
+					if files_found:
+						# Something in the directory needs to be synced
+						return True
+
+
+	logging.debug('Directory %s does not contain any files for sync', local_folder)
+	return False
 		
 # Write the updated configuration
 def write_configuration(config):
@@ -108,8 +148,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 		if 'is_deleted' in folder_metadata:
 			# directory is deleted, create
 			client.file_create_folder(dropbox_dir)
-			folder_metadata = client.metadata(dropbox_dir)
-			
+			folder_metadata = client.metadata(dropbox_dir)			
 		
 	except dropbox.rest.ErrorResponse as error:
 		logging.debug(error.status)
@@ -323,7 +362,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 			else:
 				logging.debug("Skipping extension %s", file_ext)
 
-		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and len(os.listdir(full_path)) > 0 and not file.startswith('.'):
+		elif not db_path in dropbox_dirs and os.path.isdir(full_path) and can_sync_local_directory(config, full_path):
 			local_dirs.append(db_path)
 
 
@@ -349,6 +388,8 @@ def process_folder(config, client, dropbox_dir, file_details):
 		logging.info('Remote directory %s is empty, deleting...', dropbox_dir)
 		logging.debug('Pre-delete metadata %s', folder_metadata)
 		client.file_delete(dropbox_dir)
+
+
 
 def update_file_details(file_details, dropbox_metadata):
 	for key in 'revision rev modified path'.split():
