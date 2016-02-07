@@ -537,6 +537,9 @@ def main():
 
 	# Write sync state file
 	write_sync_state(file_details)
+	
+	# re-enable dimming the screen
+	console.set_idle_timer_disabled(False)
 
 
 if __name__ == "__main__":
