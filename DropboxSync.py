@@ -43,8 +43,9 @@ def getHash(file_name):
 def can_sync_local_file(config, file):
 
 	relative_path = os.path.relpath(file, PYTHONISTA_DOC_DIR)
+	file_name = os.path.basename(file)
 
-	if not relative_path in config['skip_files'] and not file.startswith('.') and not os.path.isdir(file):
+	if not relative_path in config['skip_files'] and not file_name.startswith('.') and not os.path.isdir(file):
 		
 		file_ext = os.path.splitext(file)[1]
 			
@@ -56,7 +57,9 @@ def can_sync_local_file(config, file):
 # Method to determine if the supplied local folder contains any files which would be eligible for sync
 def can_sync_local_directory(config, local_folder):
 	
-	if os.path.exists(local_folder) and not os.path.relpath(local_folder, PYTHONISTA_DOC_DIR) in config['skip_files'] and not os.path.dirname(local_folder).startswith('.'):
+	dir_name = os.path.basename(local_folder)
+	
+	if os.path.exists(local_folder) and not os.path.relpath(local_folder, PYTHONISTA_DOC_DIR) in config['skip_files'] and not dir_name.startswith('.'):
 		files = os.listdir(local_folder)
 		for current_file in files:
 		
@@ -69,7 +72,7 @@ def can_sync_local_directory(config, local_folder):
 			
 			elif os.path.isdir(full_path):
 			
-					files_found = does_directory_contain_files(config, full_path)
+					files_found = can_sync_local_directory(config, full_path)
 					
 					if files_found:
 						# Something in the directory needs to be synced
@@ -125,7 +128,7 @@ def upload(file, details, client, parent_revision):
 	logging.debug('Response: %s', response)
 	details = update_file_details(details, response)
 
-	logging.log(FINE, 'File %s uploaded to Dropbox', file)
+	logging.info('Uploaded %s', file)
 
 	return details
 
@@ -135,6 +138,7 @@ def download(dest_path, dropbox_metadata, details, client):
 
 	details['md5hash'] = getHash(dest_path)
 	logging.log(FINE, 'New MD5 hash: %s', details['md5hash'])
+	logging.info('Downloaded %s', dest_path)
 	return update_file_details(details, dropbox_metadata)
 
 def process_folder(config, client, dropbox_dir, file_details):
@@ -192,12 +196,29 @@ def process_folder(config, client, dropbox_dir, file_details):
 						# in cache but file no longer locally exists
 						details = file_details[dropbox_path]
 
-						logging.info('File %s is in the sync cache and on Dropbox, but no longer exists locally. [Delete From Dropbox (del)|Download File (d)] (Default Delete)', file['path'])
-
-						choice = raw_input()
-						if (choice == 'd'):
-							download_file = True
+						if 'SYNC_NO_LOCAL' in REMEMBER_OPTIONS:
+							prev_choice = REMEMBER_OPTIONS['SYNC_NO_LOCAL']
 						else:
+							prev_choice = ''
+						
+						if prev_choice in ('la', 'da', 'sa'):
+								choice = choice[0]
+						else:
+
+							choice = raw_input('''File %s is in the sync cache and on Dropbox, but no longer exists locally. (Default Delete):
+Delete From Dropbox (d) [All in this state (da)]
+Download File (l) [All in this state (da)]
+Skip (s) [All in this state (sa)]
+''' % file['path']).lower()
+						
+						# remember options if necessary
+						if choice in ('la', 'da', 'sa'):
+							REMEMBER_OPTIONS['SYNC_NO_LOCAL'] = choice
+							choice = choice[0]
+							
+						if (choice == 'l'):
+							download_file = True
+						elif (choice == 'd' or not choice):
 							# Default is 'del'
 							download_file = False
 
@@ -239,7 +260,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 						if current_hash == details['md5hash']:
 							logging.log(FINE, 'File "%s" not changed.', dropbox_path)
 						else:
-							logging.info('File "%s" updated locally, uploading...', dropbox_path)
+							logging.log(FINE, 'File "%s" updated locally, uploading...', dropbox_path)
 
 							details = upload(dropbox_path, details, client, file['rev'])
 							file_details[dropbox_path] = details
@@ -254,19 +275,36 @@ def process_folder(config, client, dropbox_dir, file_details):
 						logging.debug('File %s. New hash: %s, Old hash: %s', dropbox_path, current_hash, details['md5hash'])
 
 						if current_hash == details['md5hash']:
-							logging.info('File "%s" updated remotely. Downloading...', dropbox_path)
+							logging.log(FINE, 'File "%s" updated remotely. Downloading...', dropbox_path)
 
 							details = download(dropbox_path, file, details, client)
 							file_details[dropbox_path] = details
 						else:
-							logging.info('File %s has been updated both locally and on Dropbox. Overwrite [Dropbox Copy (d)|Local Copy (l)| Skip(n)] (Default Skip)', file['path'])
-							choice = raw_input()
+							
+							if 'UPDATED_BOTH' in REMEMBER_OPTIONS:
+								prev_choice = REMEMBER_OPTIONS['UPDATED_BOTH']
+							else:
+								prev_choice = ''
+						
+							if prev_choice in ('la', 'da', 'sa'):
+								choice = choice[0]
+							else:
+								choice = raw_input('''File %s has been updated both locally and on Dropbox. (Default Skip) Overwrite: 
+Dropbox Copy (d) [All in this state (da)]
+Local Copy (l) [All in this state (la)]
+Skip (s) [All in this state (sa)]
+''' % file['path']).lower()
+							
+							# remember options if necessary
+							if choice in ('la', 'da', 'sa'):
+								REMEMBER_OPTIONS['UPDATED_BOTH'] = choice
+								choice = choice[0]
 
-							if choice in ('d', 'D'):
+							if choice == 'd':
 								logging.log(FINE, 'Overwriting Dropbox Copy of %s', file)
 								details = upload(dropbox_path, details, client, file['rev'])
 								file_details[dropbox_path] = details
-							elif choice in ('l', 'L'):
+							elif choice == 'l':
 								logging.log(FINE, 'Overwriting Local Copy of %s', file)
 								details = download(dropbox_path, file, details, client)
 								file_details[dropbox_path] = details
@@ -274,16 +312,31 @@ def process_folder(config, client, dropbox_dir, file_details):
 
 				else:
 					# Not in cache, but exists on dropbox and local, need to prompt user
+					if 'NO_SYNC_BOTH' in REMEMBER_OPTIONS:
+						prev_choice = REMEMBER_OPTIONS['NO_SYNC_BOTH']
+					else:
+						prev_choice = ''
+						
+					if prev_choice in ('la', 'da', 'sa'):
+						choice = choice[0]
+					else:
+						choice = raw_input('''File %s is not in the sync cache but exists both locally and on dropbox. (Default Skip) Overwrite:
+Dropbox Copy (d) [All in this state (da)]
+Local Copy (l) [All in this state (la)]
+Skip (s) [All in this state (sa)]
+ ''' % file['path']).lower()
 
-					logging.info('File %s is not in the sync cache but exists both locally and on dropbox. Overwrite [Dropbox Copy (d)|Local Copy (l) | Skip(n)] (Default Skip)', file['path'])
-					choice = raw_input()
+					# remember options if necessary
+					if choice in ('la', 'da', 'sa'):
+						REMEMBER_OPTIONS['NO_SYNC_BOTH'] = choice
+						choice = choice[0]
 
 					details = {}
-					if choice in ('d', 'D'):
+					if choice == 'd':
 						logging.log(FINE, 'Overwriting Dropbox Copy of %s', file)
 						details = upload(dropbox_path, details, client, file['rev'])
 						file_details[dropbox_path] = details
-					elif choice in ('l', 'L'):
+					elif choice == 'l':
 						logging.log(FINE, 'Overwriting Local Copy of %s', file)
 						details = download(dropbox_path, file, details, client)
 						file_details[dropbox_path] = details
@@ -335,13 +388,28 @@ def process_folder(config, client, dropbox_dir, file_details):
 						# File is not in dropbox but is in sync cache
 						details = file_details[relative_path]
 						
-						logging.info('File %s is in the sync cache but no longer on Dropbox. [Delete local file (d)|Upload File (u)] (Default Delete)', relative_path)
-
-						choice = raw_input()
+						if 'SYNC_NO_DROP' in REMEMBER_OPTIONS:
+							prev_choice = REMEMBER_OPTIONS['SYNC_NO_DROP']
+						else:
+							prev_choice = ''
+							
+						if prev_choice in ('da', 'ua', 'sa'):
+							choice = choice[0]
+						else:
+							choice = raw_input('''File %s is in the sync cache but no longer on Dropbox. (Default Delete):
+Delete local file (d) [All in this state (da)]
+Upload File (u) [All in this state (ua)
+Skip (s) [All in this state (sa)]
+''' % relative_path).lower()
+							
+						# remember options if necessary
+						if choice in ('ua', 'da', 'sa'):
+							REMEMBER_OPTIONS['SYNC_NO_DROP'] = choice
+							choice = choice[0]
 						
 						if choice == 'u':
 							upload_file = True
-						else:
+						elif (choice == 'd' or not choice):
 							# delete file
 							os.remove(full_path)
 							
@@ -410,13 +478,14 @@ def write_sync_state(file_details):
 def setup_user_configuration(prompt, configuration):
 	
 	if prompt:
-		logging.info('What file extensions should be synced? New extensions must be prefixed with a dot, and be comma separated. (These will be included by default %s)', DEFAULT_FILE_EXTENSIONS)
-		configuration['file_extensions'] = raw_input().replace(', ',',').split(',')
+		
+		configuration['file_extensions'] = raw_input('''What file extensions should be synced? New extensions must be prefixed with a dot, and be comma separated. (These will be included by default %s)
+''' % DEFAULT_FILE_EXTENSIONS).replace(', ',',').split(',')
 		
 		logging.debug(input)
 		
-		logging.info('What files should not be synced? Paths should be relative to the root and be comma separated.')
-		configuration['skip_files'] = raw_input().replace(', ',',').split(',')
+		configuration['skip_files'] = raw_input('''What files should not be synced? Paths should be relative to the root and be comma separated.
+''').replace(', ',',').split(',')
 	
 		write_configuration(configuration)
 	
@@ -454,10 +523,11 @@ def setup_configuration():
 		config = {}
 		
 		logging.info('Get your app key and secret from the Dropbox developer website')
-		logging.info('Enter your app key')
-		config['APP_KEY'] = raw_input()
-		logging.info('Enter your app secret')
-		config['APP_SECRET'] = raw_input()
+		
+		config['APP_KEY'] = raw_input('''Enter your app key
+''')
+		config['APP_SECRET'] = raw_input('''Enter your app secret
+''')
 		
 		# ACCESS_TYPE can be 'dropbox' or 'app_folder' as configured for your app
 		config['ACCESS_TYPE'] = 'app_folder'
