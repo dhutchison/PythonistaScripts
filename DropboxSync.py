@@ -202,7 +202,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 							prev_choice = ''
 						
 						if prev_choice in ('la', 'da', 'sa'):
-								choice = choice[0]
+							choice = prev_choice[0]
 						else:
 
 							choice = raw_input('''File %s is in the sync cache and on Dropbox, but no longer exists locally. (Default Delete):
@@ -287,7 +287,7 @@ Skip (s) [All in this state (sa)]
 								prev_choice = ''
 						
 							if prev_choice in ('la', 'da', 'sa'):
-								choice = choice[0]
+								choice = prev_choice[0]
 							else:
 								choice = raw_input('''File %s has been updated both locally and on Dropbox. (Default Skip) Overwrite: 
 Dropbox Copy (d) [All in this state (da)]
@@ -318,7 +318,7 @@ Skip (s) [All in this state (sa)]
 						prev_choice = ''
 						
 					if prev_choice in ('la', 'da', 'sa'):
-						choice = choice[0]
+						choice = prev_choice[0]
 					else:
 						choice = raw_input('''File %s is not in the sync cache but exists both locally and on dropbox. (Default Skip) Overwrite:
 Dropbox Copy (d) [All in this state (da)]
@@ -394,7 +394,7 @@ Skip (s) [All in this state (sa)]
 							prev_choice = ''
 							
 						if prev_choice in ('da', 'ua', 'sa'):
-							choice = choice[0]
+							choice = prev_choice[0]
 						else:
 							choice = raw_input('''File %s is in the sync cache but no longer on Dropbox. (Default Delete):
 Delete local file (d) [All in this state (da)]
