@@ -1,4 +1,6 @@
-# See: http://www.devwithimagination.com/2014/05/11/pythonista-dropbox-sync
+# See: 
+# http://www.devwithimagination.com/2014/05/11/pythonista-dropbox-sync
+# http://www.devwithimagination.com/2016/06/14/pythonista-dropbox-sync-revisited/ 
 
 import webbrowser, os
 import dropbox
