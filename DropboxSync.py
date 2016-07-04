@@ -209,7 +209,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 
 							choice = raw_input('''File %s is in the sync cache and on Dropbox, but no longer exists locally. (Default Delete):
 Delete From Dropbox (d) [All in this state (da)]
-Download File (l) [All in this state (da)]
+Download File (l) [All in this state (la)]
 Skip (s) [All in this state (sa)]
 ''' % file['path']).lower()
 						
