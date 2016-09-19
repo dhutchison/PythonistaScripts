@@ -11,6 +11,13 @@ import sys
 import logging
 import re
 import console
+from functools import partial
+
+# Python 3 compatibility
+try: 
+	input = raw_input
+except NameError:
+	pass
 
 # Program, do not edit from here
 
@@ -36,10 +43,13 @@ REMEMBER_OPTIONS = {}
 
 # Method to get the MD5 Hash of the file with the supplied file name.
 def getHash(file_name):
-	# Open,close, read file and calculate MD5 on its contents
-	with open(os.path.join(PYTHONISTA_DOC_DIR, file_name)) as file_to_check:
-		# pipe contents of the file through
-		return hashlib.md5(file_to_check.read()).hexdigest()
+	# Open the file to read in binary format
+	with open(file_name, mode='rb') as f:
+		d = hashlib.md5()
+		# Read the file a bit at a time to conserve memory
+		for buf in iter(partial(f.read, 128), b''):
+			d.update(buf)
+	return d.hexdigest()
 
 # Helper method to determine if a local file is eligible for sync
 def can_sync_local_file(config, file):
@@ -89,33 +99,31 @@ def write_configuration(config):
 	with open(CONFIG_FILEPATH, 'w') as config_file:
 			json.dump(config, config_file, indent=1)
 
-# Method to configure the supplied dropbox session.
+# Generates an authorized Dropbox client object.
 # This will use cached OAUTH credentials if they have been stored, otherwise the
 # user will be put through the Dropbox authentication process.
-def configure_token(dropbox_session, configuration):
-	
-	if 'token_key' in configuration and 'token_secret' in configuration:
-		# values exist in our config already
-		dropbox_session.set_token(configuration['token_key'], configuration['token_secret'])
-	else:
-		setup_new_auth_token(dropbox_session, configuration)
+def get_dropbox_client(configuration):
+	if not 'access_token' in configuration:
+		setup_new_auth_token(configuration)
+	return dropbox.client.DropboxClient(configuration["access_token"])
 
-# Method to set up a new Dropbox OAUTH token.
+# Method to set up a new Dropbox OAUTH2 access token.
 # This will take the user through the required steps to authenticate.
-def setup_new_auth_token(sess, configuration):
-	request_token = sess.obtain_request_token()
-	url = sess.build_authorize_url(request_token)
+def setup_new_auth_token(configuration):
+	flow = dropbox.client.DropboxOAuth2FlowNoRedirect(configuration["APP_KEY"], configuration["APP_SECRET"])
+	url = flow.start()
 
 	# Make the user sign in and authorize this token
 	logging.debug('url: %s', url)
-	logging.info('Please visit this website and press the "Allow" button, then hit "Enter" here.')
+	logging.info('1. Visit this website and press the "Allow" button.')
+	logging.info('2. Copy the authorization code.')
 	webbrowser.open(url)
-	raw_input()
+	code = input("3. Paste the authorization code here and hit [enter]: ")
 	# This will fail if the user didn't visit the above URL and hit 'Allow'
-	access_token = sess.obtain_access_token(request_token)
+	access_token, user_id = flow.finish(code)
 	# update configuration with token
-	configuration['token_key'] = access_token.key
-	configuration['token_secret'] = access_token.secret
+	print(access_token)
+	configuration['access_token'] = access_token
 	
 	write_configuration(configuration)
 
@@ -124,7 +132,7 @@ def upload(file, details, client, parent_revision):
 	details['md5hash'] = getHash(file)
 	logging.log(FINE, 'New MD5 hash: %s', details['md5hash'])
 
-	with open(os.path.join(PYTHONISTA_DOC_DIR, file), 'r') as in_file:
+	with open(os.path.join(PYTHONISTA_DOC_DIR, file), 'rb') as in_file:
 		response = client.put_file(file, in_file, False, parent_revision)
 	
 	logging.debug('Response: %s', response)
@@ -135,8 +143,9 @@ def upload(file, details, client, parent_revision):
 	return details
 
 def download(dest_path, dropbox_metadata, details, client):
-	with open(os.path.join(PYTHONISTA_DOC_DIR, dest_path), 'w') as out_file:
-		out_file.write(client.get_file(dropbox_metadata['path']).read())
+	with open(os.path.join(PYTHONISTA_DOC_DIR, dest_path), 'wb') as out_file:
+		f = client.get_file(dropbox_metadata['path'])
+		out_file.write(f.read())
 
 	details['md5hash'] = getHash(dest_path)
 	logging.log(FINE, 'New MD5 hash: %s', details['md5hash'])
@@ -207,7 +216,7 @@ def process_folder(config, client, dropbox_dir, file_details):
 							choice = prev_choice[0]
 						else:
 
-							choice = raw_input('''File %s is in the sync cache and on Dropbox, but no longer exists locally. (Default Delete):
+							choice = input('''File %s is in the sync cache and on Dropbox, but no longer exists locally. (Default Delete):
 Delete From Dropbox (d) [All in this state (da)]
 Download File (l) [All in this state (la)]
 Skip (s) [All in this state (sa)]
@@ -291,7 +300,7 @@ Skip (s) [All in this state (sa)]
 							if prev_choice in ('la', 'da', 'sa'):
 								choice = prev_choice[0]
 							else:
-								choice = raw_input('''File %s has been updated both locally and on Dropbox. (Default Skip) Overwrite: 
+								choice = input('''File %s has been updated both locally and on Dropbox. (Default Skip) Overwrite: 
 Dropbox Copy (d) [All in this state (da)]
 Local Copy (l) [All in this state (la)]
 Skip (s) [All in this state (sa)]
@@ -322,7 +331,7 @@ Skip (s) [All in this state (sa)]
 					if prev_choice in ('la', 'da', 'sa'):
 						choice = prev_choice[0]
 					else:
-						choice = raw_input('''File %s is not in the sync cache but exists both locally and on dropbox. (Default Skip) Overwrite:
+						choice = input('''File %s is not in the sync cache but exists both locally and on dropbox. (Default Skip) Overwrite:
 Dropbox Copy (d) [All in this state (da)]
 Local Copy (l) [All in this state (la)]
 Skip (s) [All in this state (sa)]
@@ -398,7 +407,7 @@ Skip (s) [All in this state (sa)]
 						if prev_choice in ('da', 'ua', 'sa'):
 							choice = prev_choice[0]
 						else:
-							choice = raw_input('''File %s is in the sync cache but no longer on Dropbox. (Default Delete):
+							choice = input('''File %s is in the sync cache but no longer on Dropbox. (Default Delete):
 Delete local file (d) [All in this state (da)]
 Upload File (u) [All in this state (ua)
 Skip (s) [All in this state (sa)]
@@ -481,12 +490,12 @@ def setup_user_configuration(prompt, configuration):
 	
 	if prompt:
 		
-		configuration['file_extensions'] = raw_input('''What file extensions should be synced? New extensions must be prefixed with a dot, and be comma separated. (These will be included by default %s)
+		configuration['file_extensions'] = input('''What file extensions should be synced? New extensions must be prefixed with a dot, and be comma separated. (These will be included by default %s)
 ''' % DEFAULT_FILE_EXTENSIONS).replace(', ',',').split(',')
 		
 		logging.debug(input)
 		
-		configuration['skip_files'] = raw_input('''What files should not be synced? Paths should be relative to the root and be comma separated.
+		configuration['skip_files'] = input('''What files should not be synced? Paths should be relative to the root and be comma separated.
 ''').replace(', ',',').split(',')
 	
 		write_configuration(configuration)
@@ -526,9 +535,9 @@ def setup_configuration():
 		
 		logging.info('Get your app key and secret from the Dropbox developer website')
 		
-		config['APP_KEY'] = raw_input('''Enter your app key
+		config['APP_KEY'] = input('''Enter your app key
 ''')
-		config['APP_SECRET'] = raw_input('''Enter your app secret
+		config['APP_SECRET'] = input('''Enter your app secret
 ''')
 		
 		# ACCESS_TYPE can be 'dropbox' or 'app_folder' as configured for your app
@@ -599,12 +608,10 @@ def main():
 	logging.info('Begin Dropbox sync')
 
 	#configure dropbox
-	sess = dropbox.session.DropboxSession(config['APP_KEY'], config['APP_SECRET'], config['ACCESS_TYPE'])
-	configure_token(sess, config)
-	client = dropbox.client.DropboxClient(sess)
+	client = get_dropbox_client(config)
 
 	logging.info('linked account: %s', client.account_info()['display_name'])
-
+	os.chdir(PYTHONISTA_DOC_DIR) # Switch to Pythonista doc root if not there already
 	process_folder(config, client, '/', file_details)
 
 	# Write sync state file
