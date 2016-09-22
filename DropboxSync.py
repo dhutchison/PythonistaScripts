@@ -561,7 +561,14 @@ def load_sync_state():
 		os.mkdir(SYNC_STATE_FOLDER)
 	if os.path.exists(sync_status_file):
 		with open(sync_status_file, 'r') as input_file:
-			file_details = json.load(input_file)
+			try:
+				file_details = json.load(input_file)
+			except ValueError:
+				# Corrupted sync status file
+				# (May have crashed during syncing)
+				# Discard and start over
+				logging.warning('Error parsing sync status file! Proceeding manually.')
+				file_details = {}
 	else:
 		file_details = {}
 
